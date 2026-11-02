@@ -36,14 +36,33 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/login_docent")
+def login_pagina(rol, template):
+    if request.method == "POST":
+        gebruiker = db.controleer_login(request.form.get("email", ""), request.form.get("password", ""))
+
+        if gebruiker and gebruiker["rol"] == rol:
+            session.clear()
+            if rol == "docent":
+                session["role"] = "docent"
+                session["docent_id"] = gebruiker["docent_id"]
+                return redirect(url_for("docent"))
+            session["role"] = "student"
+            session["leerling_id"] = gebruiker["leerling_id"]
+            return redirect(url_for("student"))
+
+        return render_template(template, fout="Ongeldige inloggegevens.")
+
+    return render_template(template)
+
+
+@app.route("/login_docent", methods=["GET", "POST"])
 def login_docent():
-    return render_template("login_docent.html")
+    return login_pagina("docent", "login_docent.html")
 
 
-@app.route("/login_student")
+@app.route("/login_student", methods=["GET", "POST"])
 def login_student():
-    return render_template("login_student.html")
+    return login_pagina("leerling", "login_student.html")
 
 
 @app.route("/dashboard-student")
@@ -255,22 +274,6 @@ def docent():
         geselecteerde_leerling=geselecteerde_leerling,
         level_cards=level_cards
     )
-
-
-@app.route("/set-role/<role>")
-def set_role(role):
-    session["role"] = role
-    session.clear()
-
-    session["role"] = role
-
-    if role == "student":
-        return redirect(url_for("student"))
-
-    if role == "docent":
-        return redirect(url_for("docent"))
-
-    return redirect(url_for("index"))
 
 @app.route("/api/docent/klasanalyse")
 def api_docent_klasanalyse():

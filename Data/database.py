@@ -1,6 +1,8 @@
 import json
 import sqlite3
 import os
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError, InvalidHashError
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "Data", "database.db")
@@ -10,7 +12,9 @@ def init_database():
     create_test_table()
     insert_into_test_table()
     create_leerling_table()
+    create_gebruiker_table()
     insert_into_leerling_table()
+    insert_dummy_gebruikers()
     insert_into_taxonomy()
 
 def get_all_leerdoelen():
@@ -179,6 +183,69 @@ def create_leerling_table():
 
     conn.commit()
     conn.close()
+
+def create_gebruiker_table():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS gebruiker (
+            gebruiker_id INTEGER PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            wachtwoord_hash TEXT NOT NULL,
+            docent_id INTEGER,
+            leerling_id INTEGER,
+            rol TEXT NOT NULL CHECK (rol IN ('docent', 'leerling')),
+            FOREIGN KEY (leerling_id) REFERENCES leerling(leerling_id),
+            FOREIGN KEY (docent_id) REFERENCES docent(docent_id) 
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+ph = PasswordHasher()
+
+def maak_gebruiker(email, wachtwoord, rol, docent_id=None, leerling_id=None):
+    wachtwoord_hash = ph.hash(wachtwoord)
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        conn.execute(
+            "INSERT INTO gebruiker (email, wachtwoord_hash, rol, docent_id, leerling_id) VALUES (?, ?, ?, ?, ?)",
+            (email.strip().lower(), wachtwoord_hash, rol, docent_id, leerling_id),
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
+
+
+def controleer_login(email, wachtwoord):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    gebruiker = conn.execute(
+        "SELECT * FROM gebruiker WHERE email = ?", (email.strip().lower(),)
+    ).fetchone()
+    conn.close()
+
+    if gebruiker is None:
+        return None
+
+    try:
+        ph.verify(gebruiker["wachtwoord_hash"], wachtwoord)
+    except (VerifyMismatchError, InvalidHashError):
+        return None
+
+    return gebruiker
+
+
+def insert_dummy_gebruikers():
+    maak_gebruiker("docent@test.nl", "docent123", "docent", docent_id=1)
+    maak_gebruiker("student@test.nl", "student123", "leerling", leerling_id=1)
 
 def insert_into_leerling_table():
     with open("Data/data-sample-small.json", "r", encoding="utf-8") as file:
